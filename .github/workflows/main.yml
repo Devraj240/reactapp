@@ -1,0 +1,48 @@
+name: CI/CD for React App
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Project
+        run: npm run build
+        env:
+          REACT_APP_WELCOME_TEXT: ${{ vars.REACT_APP_WELCOME_TEXT }}
+
+      - name: Deploy to EC2
+        env:
+          PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          HOST: ${{ secrets.EC2_HOST }}
+          USER: ${{ secrets.EC2_USER }}
+        run: |
+          # Install SSH client if not already installed
+          sudo apt-get install -y openssh-client
+
+          # Create a directory for the build files on the EC2 instance
+          ssh -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" "$USER@$HOST" "mkdir -p /var/www/html/my-react-app"
+
+          # Copy the build files to the EC2 instance
+          scp -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" -r build/* "$USER@$HOST:/var/www/html/my-react-app/"
+
+          # Restart Apache server to serve the new files
+          ssh -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" "$USER@$HOST" "sudo systemctl restart apache2"
