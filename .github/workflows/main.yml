@@ -29,20 +29,33 @@ jobs:
         env:
           REACT_APP_WELCOME_TEXT: ${{ vars.REACT_APP_WELCOME_TEXT }}
 
-      - name: Deploy to EC2
+      - name: Deploy to Server 1
+        uses: easingthemes/ssh-deploy@main
         env:
-          PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          HOST: ${{ secrets.EC2_HOST }}
-          USER: ${{ secrets.EC2_USER }}
-        run: |
-          # Install SSH client if not already installed
-          sudo apt-get install -y openssh-client
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+          REMOTE_HOST: ${{ secrets.HOST_DNS }}
+          REMOTE_USER: ${{ secrets.USERNAME }}
+          TARGET: ${{ secrets.TARGET_DIR }}
 
-          # Create a directory for the build files on the EC2 instance
-          ssh -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" "$USER@$HOST" "mkdir -p /var/www/html/my-react-app"
+      - name: Executing remote SSH commands using SSH key
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST_DNS }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo apt-get -y update
+            sudo apt-get install -y apache2
+            sudo systemctl start apache2
+            sudo systemctl enable apache2
 
-          # Copy the build files to the EC2 instance
-          scp -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" -r build/* "$USER@$HOST:/var/www/html/my-react-app/"
+            # Move React build files to Apache's root directory
+            sudo mv $TARGET/* /var/www/html/
 
-          # Restart Apache server to serve the new files
-          ssh -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" "$USER@$HOST" "sudo systemctl restart apache2"
+            # Ensure correct permissions
+            #sudo chown -R www-data:www-data /var/www/html
+            #            sudo chmod -R 755 /var/www/html
+
+            # Restart Apache to apply changes
+            sudo systemctl restart apache2
+
