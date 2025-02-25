@@ -25,19 +25,13 @@ jobs:
         run: npm install
 
       - name: Build Project
-        run: npm run build
+        run: |
+          export PUBLIC_URL="/"  # Ensures correct asset paths
+          npm run build
         env:
           REACT_APP_WELCOME_TEXT: ${{ vars.REACT_APP_WELCOME_TEXT }}
 
-      - name: Deploy to Server 1
-        uses: easingthemes/ssh-deploy@main
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
-          REMOTE_HOST: ${{ secrets.HOST_DNS }}
-          REMOTE_USER: ${{ secrets.USERNAME }}
-          TARGET: ${{ secrets.TARGET_DIR }}
-
-      - name: Executing remote SSH commands using SSH key
+      - name: Deploy to Server
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOST_DNS }}
@@ -48,12 +42,44 @@ jobs:
             sudo apt-get install -y apache2
             sudo systemctl start apache2
             sudo systemctl enable apache2
-            cd home 
-            sudo mv * /var/www/html/
 
+            # Move React build files correctly
+            cd ${{ secrets.TARGET_DIR }}
+            sudo mv build/* /var/www/html/
+            sudo rm -rf /var/www/html/build /var/www/html/public /var/www/html/src /var/www/html/node_modules
+
+            # Set correct permissions
             sudo chown -R www-data:www-data /var/www/html
             sudo chmod -R 755 /var/www/html
 
-            # Restart Apache to apply changes
+            # Configure Apache for React
+            sudo bash -c 'cat > /etc/apache2/sites-available/000-default.conf << EOF
+            <VirtualHost *:80>
+                ServerAdmin webmaster@localhost
+                DocumentRoot /var/www/html
+
+                <Directory /var/www/html>
+                    Options -Indexes +FollowSymLinks
+                    AllowOverride All
+                    Require all granted
+                </Directory>
+
+                ErrorLog ${APACHE_LOG_DIR}/error.log
+                CustomLog ${APACHE_LOG_DIR}/access.log combined
+            </VirtualHost>
+            EOF'
+
+            # Create .htaccess for React Router
+            sudo bash -c 'cat > /var/www/html/.htaccess << EOF
+            <IfModule mod_rewrite.c>
+              RewriteEngine On
+              RewriteCond %{REQUEST_FILENAME} !-f
+              RewriteCond %{REQUEST_FILENAME} !-d
+              RewriteRule . /index.html [L]
+            </IfModule>
+            EOF'
+
+            # Enable mod_rewrite and restart Apache
+            sudo a2enmod rewrite
             sudo systemctl restart apache2
 
